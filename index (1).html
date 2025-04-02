@@ -1,0 +1,37 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Telegram Mini App</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    body { font-family: sans-serif; background: #f0f0f0; padding: 20px; }
+    input, button { width: 100%; padding: 10px; margin: 10px 0; }
+  </style>
+</head>
+<body>
+  <h3>Введите имя и телефон:</h3>
+  <input type="text" id="name" placeholder="Имя">
+  <input type="tel" id="phone" placeholder="Телефон">
+  <button onclick="submitData()">Отправить</button>
+
+  <script>
+    const tg = window.Telegram.WebApp;
+    tg.expand();
+
+    function submitData() {
+      const name = document.getElementById('name').value;
+      const phone = document.getElementById('phone').value;
+
+      fetch('https://vsnet-seeker-how-anonymous.trycloudflare.com/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, phone, user: tg.initDataUnsafe.user })
+      }).then(() => {
+        tg.close();
+      });
+    }
+  </script>
+</body>
+</html>
