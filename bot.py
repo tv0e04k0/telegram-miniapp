@@ -26,7 +26,7 @@ BACK = '◀ Назад'
 
 # Токены
 TOKEN = os.getenv('T7571543010:AAGGdsowEAJOE4sVCWMNKFslo4vNSoU3SjYЫ')
-GOOGLE_SHEET_ID = os.getenv('1y8vXc06xSGcOdaYYxIKQIaNkVBMJe8-qPBXyNyUujr8'')
+GOOGLE_SHEET_ID = os.getenv('1y8vXc06xSGcOdaYYxIKQIaNkVBMJe8-qPBXyNyUujr8')
 
 # Авторизация
 scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
