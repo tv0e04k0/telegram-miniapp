@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Telegram Mini App</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        body {
+            font-family: sans-serif;
+            background: #f0f0f0;
+            padding: 20px;
+        }
+        input, button {
+            width: 100%;
+            padding: 10px;
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <h3>Заполни данные:</h3>
+    <input type="text" id="date" placeholder="Дата (ДД.ММ.ГГГГ)" value="03.04.2025">
+    <input type="text" id="magazin" placeholder="Магазин">
+    <input type="text" id="oper" placeholder="Операция">
+    <input type="text" id="tovar" placeholder="Наименование">
+    <input type="text" id="kol" placeholder="Кол-во">
+    <input type="text" id="zabor" placeholder="Поставщик">
+    <input type="text" id="fio" placeholder="ФИО">
+    <input type="text" id="telefon" placeholder="Телефон">
+    <input type="text" id="gorod" placeholder="Город">
+    <input type="text" id="trek" placeholder="Трек номер">
+    <input type="text" id="price" placeholder="Стоимость">
+    <input type="text" id="dostavka" placeholder="Доставка">
+    <input type="text" id="zakaz" placeholder="№ заказа">
+    <input type="text" id="sernom" placeholder="Серийный номер">
+    <input type="text" id="komment" placeholder="Комментарий">
+    <button onclick="submitData()">Отправить</button>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+
+        function submitData() {
+            const data = {
+                date: document.getElementById('date').value,
+                magazin: document.getElementById('magazin').value,
+                oper: document.getElementById('oper').value,
+                tovar: document.getElementById('tovar').value,
+                kol: document.getElementById('kol').value,
+                zabor: document.getElementById('zabor').value,
+                fio: document.getElementById('fio').value,
+                telefon: document.getElementById('telefon').value,
+                gorod: document.getElementById('gorod').value,
+                trek: document.getElementById('trek').value,
+                price: document.getElementById('price').value,
+                dostavka: document.getElementById('dostavka').value,
+                zakaz: document.getElementById('zakaz').value,
+                sernom: document.getElementById('sernom').value,
+                komment: document.getElementById('komment').value,
+                user: tg.initDataUnsafe.user
+            };
+
+            fetch("https://telegram-miniapp-production.up.railway.app/submit", {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            }).then(() => {
+                tg.close();
+            });
+        }
+    </script>
+</body>
+</html>
