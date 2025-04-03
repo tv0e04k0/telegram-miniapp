@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "velvety-outcome-452215-f8",
+  "private_key_id": "cdd6199792a954dd7ea2f181336761ff114fe409",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC9gygqrlBmQ4/I\nILlr3L6zvgCETfdlsqEkQb5KaNZBRPC5eKAuoJMiCRPR02K9Ag1rgNB8J1VNxX18\nR2yv+P2MtmoRokVbyS3ory/DWUahO5RxrpA/x0IXTzUgSL1mzi/MnHtlv7M36Bs6\nikO5wWIUh9rDWtfsOIixFPRVi64cXQ/U0eh/CZtrmDoVbsBaGbe4E8okuZ+1u7fL\n9iYLAmzv/xHlz/KvLrf4URVkSyyUMqs+z6MEhUVkPOlxTqdakHYrXtWeIAPzxYYk\nsloo0kWv5t1wLjwvF52vik9gLR3kbZiE4ZjYHJNYcqvvgb3bssAGhgOim/GYd91G\nBdqlAkIVAgMBAAECggEAXEDfqb9HdjDHanW7ra08zETe/YjyuPf3B65VUuWr/wPv\nZ2o4F9qlJTlkA42ykC3SmJWRaA7BsOVFi909JIDB9ODLy5/BwceyaIX3a1InVs+p\nGJoQsGtwWeZ+ByRBxyzyCdnXHBXwyXNc5eduxptEApiLvvOXDvAKYqG/u3EOpdEz\npC1Bk2yfa5hde/VPkVbSa4u4a6YCrbjh831qRD+oHaXZ55m8yiEODnyECddZwANT\n4MK7xj7cB78LPCI2phCq2mEalGUmnNpJOrzclAkcrUnVZdYuFH/ZY+4/t3C6U5wY\nv45FlHCnQ1+X730opxmh6gMr4zz9Q77PgdYpYTBDlQKBgQD4gZ85suhSP389hQvn\nwsg7C9YROU2pHl1zsPpriaVabpvovPbN/EpuCXjDWqB5XuG9VBVatP2jHmjymo7u\nHDS3ACPGfg5eKU6tIlUDkqrMGUV0kowpz9NI7PktHPq/TsnRB1CfVQMXg3gMqUDq\nPGxDhSGCubA98JTEK8b2aUWt7wKBgQDDOh9vNxe42mEuR7YiYrUs0+2jzf46Xern\nKBuw/b2/FQTlBXrYrWugJFi6wJgcZ3vL0iLgDw6sSlAf7hR+ix3U7CTQ5IO6t+F3\nWl/pWB7iGhzsK5/4VfWSv+v6475tigZxh1kJN9A/g0zw9A8v4j56W5bdcWxobAA/\nlwrogeuUOwKBgQDxTURkTYHjY37VKNzPlcbB9xNNNDxhzHdoAGCZjVW/gwnnK53n\nlGRdhtr5roWGdQhzxDLcGkTzYHL9p/DD6yWQ0RTsB7lB25Bm86BjUMaCWsOjly18\n6C28cUbfdHVS0FmNnDHAFVdkPKeUe8Dp8fQaeCp6+n3VF0gNWIjg+oXLhwKBgDF5\nKT4l1/0gWkBALAfKu98AVdiM+0APTNgHcf0IUG18BiGDof4G9J9Alru80s9f6h9c\nwTnGlxFSQ7vTuZ3X41dyAGJvhnJq5tg4LtYTXsAtnea7p25nWjQ2LrcFv9xCfh+H\nDSko2708qOLm9nJMA0k+rJyxgad0txtmS31gbzLBAoGBAODp4w1YD3B1NlPrk/r5\nrqaa0461yzpyhwMqvTN4wCqfU8bTdipkKjJroc7nZYKmBkdruBkc3OnjUSitVjeb\n6u7yqiO7gUtMTKqiIdwKix2aTrYNyzO7/gQ4LpoPWrgRY6C8dYf1h95ZPhl+BaPo\nMivUwTbUasDDfVyzRL1xRShJ\n-----END PRIVATE KEY-----\n",
+  "client_email": "bot-service@velvety-outcome-452215-f8.iam.gserviceaccount.com",
+  "client_id": "114732903870507953282",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/bot-service%40velvety-outcome-452215-f8.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
