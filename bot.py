@@ -1,210 +1,354 @@
 import logging
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove
+import os
+import json
+import calendar
+from datetime import datetime, timedelta
+from collections import defaultdict
+
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+
+from telegram import (
+    InlineKeyboardButton, InlineKeyboardMarkup, Update
+)
 from telegram.ext import (
-    Updater, CommandHandler, CallbackContext, MessageHandler, Filters,
-    ConversationHandler, CallbackQueryHandler
+    Updater, CommandHandler, CallbackQueryHandler, MessageHandler,
+    Filters, ConversationHandler, CallbackContext
 )
 
-
-def start(update: Update, context: CallbackContext) -> int:
-    update.message.reply_text("👋 Бот запущен! Введите /start для начала.")
-    return ConversationHandler.END
-
-
+# === НАСТРОЙКИ ===
 TOKEN = '7571543010:AAGGdsowEAJOE4sVCWMNKFslo4vNSoU3SjY'
 GOOGLE_SHEET_ID = '1y8vXc06xSGcOdaYYxIKQIaNkVBMJe8-qPBXyNyUujr8'
+SHEET_NAME = 'Операции'
+START_ROW = 5
 
-def get_supplier(update: Update, context: CallbackContext) -> int:
-    value = update.message.text
-    context.user_data['Zabor'] = value
-    route = ROUTES.get(value.strip(), [])
-    context.user_data['route'] = route
-    context.user_data['step_index'] = 0
-    return next_step(update, context)
+# === Google Sheets авторизация ===
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+creds = ServiceAccountCredentials.from_json_keyfile_name("creds.json", scope)
+client = gspread.authorize(creds)
+sheet = client.open_by_key(GOOGLE_SHEET_ID).worksheet(SHEET_NAME)
 
-def get_top_by_column(col_letter: str, limit: int = 10) -> list:
-    try:
-        ws = sheet.worksheet('Операции')
-        col_index = ord(col_letter.upper()) - ord('A') + 1
-        values = ws.col_values(col_index)[3:]
-        values = [v.strip() for v in values if v.strip()]
-        counter = Counter(values)
-        return [item for item, _ in counter.most_common(limit)]
-    except Exception as e:
-        print(f"Ошибка в get_top_by_column({col_letter}): {e}")
-        return []
+# === Состояния ===
+(
+    CHOOSE_ROW, GET_DATE, GET_MAGAZIN, GET_ZABOR, GET_OPER, GET_TOVAR,
+    SEARCH_TOVAR, GET_KOL, GET_FIO, SEARCH_FIO, GET_TELEFON, GET_GOROD,
+    GET_TREK, GET_PRICE, GET_DOSTAVKA, GET_NZAKAZA, GET_SERNOM, GET_KOMMENT,
+    PREVIEW, CONFIRM
+) = range(20)
 
-def next_step(update: Update, context: CallbackContext) -> int:
-    route = context.user_data.get('route', [])
-    index = context.user_data.get('step_index', 0)
+# === Память ===
+user_data_store = defaultdict(dict)
+# === Шаги по маршруту (в заданном порядке) ===
+STEP_FLOW = [
+    ("DD MM GGGG", GET_DATE, None),
+    ("Magazin", GET_MAGAZIN, 3),
+    ("Zabor", GET_ZABOR, 9),
+    ("Oper", GET_OPER, 4),
+    ("Tovar", GET_TOVAR, 7),
+    ("Kol", GET_KOL, 8),
+    ("FIO", GET_FIO, 10),
+    ("Telefon", GET_TELEFON, 11),
+    ("Gorod", GET_GOROD, 12),
+    ("TrekNomer", GET_TREK, 15),
+    ("Price", GET_PRICE, 19),
+    ("Dostavka", GET_DOSTAVKA, 20),
+    ("Nomer Zakaza", GET_NZAKAZA, 21),
+    ("SerNom", GET_SERNOM, 22),
+    ("Komment", GET_KOMMENT, 25),
+]
 
-    if index >= len(route):
-        update.message.reply_text("✅ Все данные собраны!", reply_markup=ReplyKeyboardRemove())
+def route_next_field(update: Update, context: CallbackContext, current_field=None, direction="next"):
+    uid = update.effective_user.id
+    stack = user_data_store[uid].get("step_stack", [])
+    idx = next((i for i, (f, _, _) in enumerate(STEP_FLOW) if f == current_field), -1)
+    next_idx = idx + 1 if direction == "next" else idx - 1
+
+    if 0 <= next_idx < len(STEP_FLOW):
+        next_field, next_state, col = STEP_FLOW[next_idx]
+        user_data_store[uid]["step_stack"] = stack[:next_idx]
+        if next_field == "DD MM GGGG":
+            return send_calendar(update, context, datetime.now().year, datetime.now().month)
+        elif next_field == "FIO":
+            return ask_top_fio(update, context)
+        else:
+            return ask_top(update, context, next_field, col, next_state)
+    else:
+        return show_preview(update, context)
+def ask_top(update: Update, context: CallbackContext, field, column_index, next_state):
+    uid = update.effective_user.id
+    user_data_store[uid]["current_field"] = field
+    user_data_store[uid]["current_col"] = column_index
+    user_data_store[uid]["next_state"] = next_state
+
+    values = sheet.col_values(column_index)[START_ROW - 1:]
+    freq = defaultdict(int)
+    for v in values:
+        if v.strip():
+            freq[v.strip()] += 1
+    top_10 = sorted(freq.items(), key=lambda x: x[1], reverse=True)[:10]
+
+    keyboard = [[InlineKeyboardButton(v[0], callback_data=v[0])] for v in top_10]
+    keyboard.append([InlineKeyboardButton("🔍 Найти", callback_data="search")])
+    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back")])
+
+    update.message.reply_text(f"Выбери {field} или найди:", reply_markup=InlineKeyboardMarkup(keyboard))
+    return next_state
+
+def handle_top_choice(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
+    uid = query.from_user.id
+    field = user_data_store[uid]["current_field"]
+    col = user_data_store[uid]["current_col"]
+
+    if query.data == "search":
+        query.edit_message_text(f"Введи часть значения поля {field}:")
+        return SEARCH_TOVAR
+
+    if query.data == "back":
+        return route_next_field(update, context, current_field=field, direction="back")
+
+    user_data_store[uid][field] = query.data
+    query.edit_message_text(f"{field} выбрано: {query.data}")
+    return route_next_field(update, context, current_field=field)
+
+def handle_search(update: Update, context: CallbackContext):
+    uid = update.effective_user.id
+    field = user_data_store[uid]["current_field"]
+    col = user_data_store[uid]["current_col"]
+    query = update.message.text.strip().lower()
+
+    values = sheet.col_values(col)[START_ROW - 1:]
+    matches = list({v for v in values if query in v.lower()})[:10]
+
+    if matches:
+        keyboard = [[InlineKeyboardButton(v, callback_data=v)] for v in matches]
+        keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back")])
+        update.message.reply_text("Вот что нашлось:", reply_markup=InlineKeyboardMarkup(keyboard))
+        return user_data_store[uid]["next_state"]
+    else:
+        update.message.reply_text("Ничего не найдено. Введи снова:")
+        return SEARCH_TOVAR
+# === Календарь ===
+def send_calendar(update, context, year, month):
+    uid = update.effective_user.id
+    context.user_data["calendar_year"] = year
+    context.user_data["calendar_month"] = month
+
+    days = calendar.monthcalendar(year, month)
+    keyboard = []
+    for week in days:
+        row = []
+        for day in week:
+            row.append(InlineKeyboardButton(" " if day == 0 else str(day), callback_data=f"day_{day}"))
+        keyboard.append(row)
+
+    keyboard.append([
+        InlineKeyboardButton("<<", callback_data="prev_month"),
+        InlineKeyboardButton(f"{month:02d}.{year}", callback_data="ignore"),
+        InlineKeyboardButton(">>", callback_data="next_month")
+    ])
+    markup = InlineKeyboardMarkup(keyboard)
+
+    if update.message:
+        update.message.reply_text("Выбери дату продажи:", reply_markup=markup)
+    else:
+        update.callback_query.edit_message_text("Выбери дату продажи:", reply_markup=markup)
+
+    return GET_DATE
+
+def handle_calendar(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
+    uid = query.from_user.id
+    year = context.user_data["calendar_year"]
+    month = context.user_data["calendar_month"]
+
+    if query.data == "prev_month":
+        prev = datetime(year, month, 1) - timedelta(days=1)
+        return send_calendar(query, context, prev.year, prev.month)
+    elif query.data == "next_month":
+        next_month = datetime(year, month, 28) + timedelta(days=4)
+        next_month = next_month.replace(day=1)
+        return send_calendar(query, context, next_month.year, next_month.month)
+    elif query.data.startswith("day_"):
+        day = int(query.data.split("_")[1])
+        date_str = f"{day:02d}.{month:02d}.{year % 100:02d}"
+        user_data_store[uid]["DD MM GGGG"] = date_str
+        query.edit_message_text(f"Дата выбрана: {date_str}")
+        return route_next_field(update, context, current_field="DD MM GGGG")
+    else:
+        return GET_DATE
+
+# === Шаг FIO ===
+def ask_top_fio(update: Update, context: CallbackContext):
+    uid = update.effective_user.id
+    values = sheet.col_values(10)[START_ROW - 1:]  # колонка J: FIO
+    freq = defaultdict(int)
+    for val in values:
+        if val.strip():
+            freq[val.strip()] += 1
+    top = sorted(freq.items(), key=lambda x: x[1], reverse=True)[:10]
+    keyboard = [[InlineKeyboardButton(v[0], callback_data=v[0])] for v in top]
+    keyboard.append([InlineKeyboardButton("🔍 Найти", callback_data="search_fio")])
+    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back")])
+    update.message.reply_text("Выбери или найди ФИО:", reply_markup=InlineKeyboardMarkup(keyboard))
+    return GET_FIO
+
+def handle_fio_choice(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
+    uid = query.from_user.id
+
+    if query.data == "search_fio":
+        query.edit_message_text("Введи часть ФИО:")
+        return SEARCH_FIO
+    if query.data == "back":
+        return route_next_field(update, context, current_field="FIO", direction="back")
+
+    user_data_store[uid]["FIO"] = query.data
+    query.edit_message_text(f"ФИО выбрано: {query.data}")
+    return route_next_field(update, context, current_field="FIO")
+
+def handle_fio_search(update: Update, context: CallbackContext):
+    uid = update.effective_user.id
+    query = update.message.text.strip().lower()
+    values = sheet.col_values(10)[START_ROW - 1:]
+    matches = list({v for v in values if query in v.lower()})[:10]
+
+    if matches:
+        keyboard = [[InlineKeyboardButton(v, callback_data=v)] for v in matches]
+        keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back")])
+        update.message.reply_text("Вот что нашлось:", reply_markup=InlineKeyboardMarkup(keyboard))
+        return GET_FIO
+    else:
+        update.message.reply_text("Ничего не найдено. Попробуй снова:")
+        return SEARCH_FIO
+def show_preview(update: Update, context: CallbackContext):
+    uid = update.effective_user.id
+    data = user_data_store[uid]
+    fields = [
+        "DD MM GGGG", "Magazin", "Zabor", "Oper", "Tovar", "Kol",
+        "FIO", "Telefon", "Gorod", "TrekNomer", "Price", "Dostavka",
+        "Nomer Zakaza", "SerNom", "Komment"
+    ]
+    preview_text = f"Проверь данные (строка {data['row']}):\n\n"
+    for f in fields:
+        preview_text += f"{f}: {data.get(f, '—')}\n"
+
+    keyboard = [
+        [InlineKeyboardButton("✅ Записать", callback_data="confirm")],
+        [InlineKeyboardButton("🔁 Начать заново", callback_data="restart")]
+    ]
+    update.message.reply_text(preview_text, reply_markup=InlineKeyboardMarkup(keyboard))
+    return PREVIEW
+
+def save_to_log(user_id):
+    data = user_data_store[user_id]
+    now = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+    user_name = data.get("user_name", "—")
+
+    fields = [
+        "DD MM GGGG", "FIO", "Magazin", "Oper", "Zabor", "Tovar", "Kol",
+        "Gorod", "Price", "Dostavka", "Telefon", "Nomer Zakaza", "SerNom", "TrekNomer", "Komment"
+    ]
+    entry = {
+        "timestamp": now,
+        "user": user_name,
+        "fields": {f: data.get(f, "") for f in fields}
+    }
+
+    log_path = "log.json"
+    if os.path.exists(log_path):
+        with open(log_path, "r", encoding="utf-8") as f:
+            log = json.load(f)
+    else:
+        log = []
+
+    log.append(entry)
+
+    with open(log_path, "w", encoding="utf-8") as f:
+        json.dump(log, f, ensure_ascii=False, indent=2)
+
+def handle_preview_actions(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
+    uid = query.from_user.id
+    data = user_data_store[uid]
+    row = data["row"]
+
+    if query.data == "confirm":
+        field_to_col = {
+            "DD MM GGGG": 2, "Magazin": 3, "Oper": 4, "Zabor": 9, "Tovar": 7,
+            "Kol": 8, "FIO": 10, "Telefon": 11, "Gorod": 12, "TrekNomer": 15,
+            "Price": 19, "Dostavka": 20, "Nomer Zakaza": 21, "SerNom": 22, "Komment": 25
+        }
+        for field, col in field_to_col.items():
+            sheet.update_cell(row, col, data.get(field, ""))
+        user_data_store[uid]["user_name"] = query.from_user.full_name
+        save_to_log(uid)
+        query.edit_message_text("✅ Данные записаны и добавлены в log.json!")
         return ConversationHandler.END
 
-    current_col = route[index]
-    context.user_data['step_index'] = index + 1
+    elif query.data == "restart":
+        user_data_store[uid] = {}
+        query.edit_message_text("Начнём заново. Введи номер строки:")
+        return CHOOSE_ROW
 
-    if current_col == 'J':
-        update.message.reply_text("Введите ФИО:")
-        return FIO
+def start(update: Update, context: CallbackContext):
+    update.message.reply_text(
+        "Привет! Введи номер строки для записи (например, 5, 6, 7...):"
+    )
+    return CHOOSE_ROW
 
-    elif current_col == 'K':
-        top = get_top_by_column('K')
-        keyboard = [[InlineKeyboardButton(text, callback_data=text)] for text in top]
-        keyboard.append([InlineKeyboardButton("✏ Ввести вручную", callback_data='manual')])
-        update.message.reply_text("📱 Выберите телефон:", reply_markup=InlineKeyboardMarkup(keyboard))
-        return PHONE_INLINE
+def choose_row(update: Update, context: CallbackContext):
+    uid = update.effective_user.id
+    text = update.message.text.strip()
+    if not text.isdigit() or int(text) < START_ROW:
+        update.message.reply_text("Номер строки должен быть числом от 5 и выше.")
+        return CHOOSE_ROW
 
-    elif current_col == 'L':
-        top = get_top_by_column('L')
-        keyboard = [[InlineKeyboardButton(text, callback_data=text)] for text in top]
-        keyboard.append([InlineKeyboardButton("✏ Ввести вручную", callback_data='manual')])
-        update.message.reply_text("🏙️ Выберите город:", reply_markup=InlineKeyboardMarkup(keyboard))
-        return CITY_INLINE
+    user_data_store[uid]["row"] = int(text)
+    user_data_store[uid]["step_stack"] = []
+    return route_next_field(update, context, current_field=None)
 
-    elif current_col == 'S':
-        top = get_top_by_column('S')
-        keyboard = [[InlineKeyboardButton(text, callback_data=text)] for text in top]
-        keyboard.append([InlineKeyboardButton("✏ Ввести вручную", callback_data='manual')])
-        update.message.reply_text("💵 Выберите стоимость:", reply_markup=InlineKeyboardMarkup(keyboard))
-        return COST_INLINE
-
-    elif current_col == 'T':
-        top = get_top_by_column('T')
-        keyboard = [[InlineKeyboardButton(text, callback_data=text)] for text in top]
-        keyboard.append([InlineKeyboardButton("✏ Ввести вручную", callback_data='manual')])
-        update.message.reply_text("🚚 Выберите доставку:", reply_markup=InlineKeyboardMarkup(keyboard))
-        return DELIVERY_INLINE
-
-    elif current_col == 'U':
-        top = get_top_by_column('U')
-        keyboard = [[InlineKeyboardButton(text, callback_data=text)] for text in top]
-        keyboard.append([InlineKeyboardButton("✏ Ввести вручную", callback_data='manual')])
-        update.message.reply_text("🔢 Выберите № заказа:", reply_markup=InlineKeyboardMarkup(keyboard))
-        return ORDER_INLINE
-
-    elif current_col == 'V':
-        top = get_top_by_column('V')
-        keyboard = [[InlineKeyboardButton(text, callback_data=text)] for text in top]
-        keyboard.append([InlineKeyboardButton("✏ Ввести вручную", callback_data='manual')])
-        update.message.reply_text("🔐 Выберите серийный номер:", reply_markup=InlineKeyboardMarkup(keyboard))
-        return SERIAL_INLINE
-
-    update.message.reply_text(f"🛠️ Необработанная колонка: {current_col}")
+def cancel(update: Update, context: CallbackContext):
+    update.message.reply_text("Действие отменено.")
     return ConversationHandler.END
-
-
-
-def get_fio(update: Update, context: CallbackContext) -> int:
-    context.user_data['FIO'] = update.message.text
-    return next_step(update, context)
-
-def handle_inline(update: Update, context: CallbackContext, key: str, next_state: int) -> int:
-    query = update.callback_query
-    value = query.data
-    query.answer()
-
-    if value == 'manual':
-        context.bot.send_message(chat_id=query.message.chat_id, text="✏ Введите вручную:")
-        return next_state
-    else:
-        context.user_data[key] = value
-        return next_step(update, context)
-
-def get_phone(update: Update, context: CallbackContext) -> int:
-    context.user_data['Telefon'] = update.message.text
-    return next_step(update, context)
-
-def get_city(update: Update, context: CallbackContext) -> int:
-    context.user_data['Gorod'] = update.message.text
-    return next_step(update, context)
-
-def get_track(update: Update, context: CallbackContext) -> int:
-    context.user_data['TrekNomer'] = update.message.text
-    return next_step(update, context)
-
-def get_cost(update: Update, context: CallbackContext) -> int:
-    context.user_data['Price'] = update.message.text
-    return next_step(update, context)
-
-def get_delivery(update: Update, context: CallbackContext) -> int:
-    context.user_data['Dostavka'] = update.message.text
-    return next_step(update, context)
-
-def get_order(update: Update, context: CallbackContext) -> int:
-    context.user_data['NomerZakaza'] = update.message.text
-    return next_step(update, context)
-
-def get_serial(update: Update, context: CallbackContext) -> int:
-    context.user_data['SerNom'] = update.message.text
-    return next_step(update, context)
-
-def get_comment(update: Update, context: CallbackContext) -> int:
-    context.user_data['Komment'] = update.message.text
-    update.message.reply_text("✅ Все данные собраны!", reply_markup=ReplyKeyboardRemove())
-    save_to_sheet(context)
-    return ConversationHandler.END
-
-# CallbackQueryHandlers для inline кнопок
-def phone_inline(update: Update, context: CallbackContext) -> int:
-    return handle_inline(update, context, 'Telefon', PHONE)
-
-def city_inline(update: Update, context: CallbackContext) -> int:
-    return handle_inline(update, context, 'Gorod', CITY)
-
-def cost_inline(update: Update, context: CallbackContext) -> int:
-    return handle_inline(update, context, 'Price', COST)
-
-def delivery_inline(update: Update, context: CallbackContext) -> int:
-    return handle_inline(update, context, 'Dostavka', DELIVERY)
-
-def order_inline(update: Update, context: CallbackContext) -> int:
-    return handle_inline(update, context, 'NomerZakaza', ORDER)
-
-def serial_inline(update: Update, context: CallbackContext) -> int:
-    return handle_inline(update, context, 'SerNom', SERIAL)
-
-
-
-def save_to_sheet(context: CallbackContext) -> None:
-    data = context.user_data
-    ws = sheet.worksheet('Операции')
-    row = data.get('row', 4)
-
-    def val(k): return [[data.get(k, '')]]
-
-    ws.update(f'B{row}', val('DD MM GGGG'))      # Дата
-    ws.update(f'C{row}', val('Magazin'))         # Магазин
-    ws.update(f'D{row}', val('Oper'))            # Операция
-    ws.update(f'G{row}', val('Tovar'))           # Наименование
-    ws.update(f'H{row}', val('Kol'))             # Кол-во
-    ws.update(f'I{row}', val('Zabor'))           # Поставщик
-    ws.update(f'J{row}', val('FIO'))             # ФИО
-    ws.update(f'K{row}', val('Telefon'))         # Телефон
-    ws.update(f'L{row}', val('Gorod'))           # Город
-    ws.update(f'O{row}', val('TrekNomer'))       # Трек
-    ws.update(f'S{row}', val('Price'))           # Стоимость
-    ws.update(f'T{row}', val('Dostavka'))        # Доставка
-    ws.update(f'U{row}', val('NomerZakaza'))     # № заказа
-    ws.update(f'V{row}', val('SerNom'))          # Серийник
-    ws.update(f'W{row}', val('NUMBERTEXT'))      # Число прописью
-    ws.update(f'X{row}', val('Summa'))           # Итого
-    ws.update(f'Y{row}', val('Komment'))         # Комментарий
-
 
 def main():
-    print("⏳ Запуск финального бота...")
-    try:
-        updater = Updater(TOKEN)
-        dp = updater.dispatcher
-        dp.add_handler(CommandHandler("start", start))
-        updater.start_polling()
-        print("🚀 Бот запущен. Готов к приёму команд.")
-        updater.idle()
-    except Exception as e:
-        print(f"❌ Ошибка при запуске: {e}")
+    updater = Updater(TOKEN, use_context=True)
+    dp = updater.dispatcher
 
+    conv = ConversationHandler(
+        entry_points=[CommandHandler("start", start)],
+        states={
+            CHOOSE_ROW: [MessageHandler(Filters.text & ~Filters.command, choose_row)],
+            GET_DATE: [CallbackQueryHandler(handle_calendar)],
+            GET_MAGAZIN: [CallbackQueryHandler(handle_top_choice)],
+            GET_ZABOR: [CallbackQueryHandler(handle_top_choice)],
+            GET_OPER: [CallbackQueryHandler(handle_top_choice)],
+            GET_TOVAR: [CallbackQueryHandler(handle_top_choice)],
+            SEARCH_TOVAR: [MessageHandler(Filters.text & ~Filters.command, handle_search)],
+            GET_KOL: [CallbackQueryHandler(handle_top_choice)],
+            GET_FIO: [CallbackQueryHandler(handle_fio_choice)],
+            SEARCH_FIO: [MessageHandler(Filters.text & ~Filters.command, handle_fio_search)],
+            GET_TELEFON: [CallbackQueryHandler(handle_top_choice)],
+            GET_GOROD: [CallbackQueryHandler(handle_top_choice)],
+            GET_TREK: [CallbackQueryHandler(handle_top_choice)],
+            GET_PRICE: [CallbackQueryHandler(handle_top_choice)],
+            GET_DOSTAVKA: [CallbackQueryHandler(handle_top_choice)],
+            GET_NZAKAZA: [CallbackQueryHandler(handle_top_choice)],
+            GET_SERNOM: [CallbackQueryHandler(handle_top_choice)],
+            GET_KOMMENT: [CallbackQueryHandler(handle_top_choice)],
+            PREVIEW: [CallbackQueryHandler(handle_preview_actions)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
 
-if __name__ == '__main__':
+    dp.add_handler(conv)
+    updater.start_polling()
+    updater.idle()
+
+if __name__ == "__main__":
     main()
